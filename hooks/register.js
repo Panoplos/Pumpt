@@ -1,15 +1,17 @@
 // thinkercise — Pixi works out while Claude works.
 //
-// prompt.submit → ask the local model how hard the task is → open a pane with
-// Pixi doing the matching exercise → turn.complete (or Esc / Ctrl+X X) closes it.
+// prompt.submit → ask the local model how hard the task is → draw Pixi doing
+// the matching exercise in the band above the prompt → turn.complete clears it.
+//
+// The band is drawn straight over the terminal's own background, no frame and
+// no dock: the sprite's transparent pixels show whatever is behind them.
 //
 // Every frame comes from hooks/pixi.js. Terminals that draw pictures get the
 // pre-rendered PNGs under assets/frames (true pixels, read by the terminal
 // itself); the rest get the same drawing rendered live into half-block cells.
-import { EXERCISES, FPS, byDifficulty, framePath, halfBlocks, renderFrame } from './pixi.js'
+import { FPS, byDifficulty, framePath, halfBlocks, renderFrame } from './pixi.js'
 import { contextOf, estimateWith, resolveModel } from './estimate.js'
 
-const PANE = 'thinkercise'
 const KEY = 'pixi'
 const FRAME_MS = Math.round(1000 / FPS)
 const WARM_UP = 'warm up: fix the typo in the readme'
@@ -18,11 +20,11 @@ const LOG_KEEP = { exchanges: 2, chars: 1000 } // recent messages kept with a lo
 let llmUrl = ''
 let llmModel = ''
 let renderer = 'auto' // 'auto' | 'image' | 'raster' (THINKERCISE_RENDERER)
-let imageDenied = false // an Image blit was refused: this terminal shows the alt
-let imageDenies = 0 // refusals in a row; a second of them means the same whatever the wording
+let imageDenied = false // the PNG frames stayed refused for a second: cells for the rest of this workout (the next prompt tries them again)
+let imageDenies = 0 // refusals of the picture in a row: the first ones are the terminal still putting it up
 let workout = null // { ex, frame, startedAt, seq, pending, result, guess }
-let paneOpen = false
-let mounted = null // what the last render drew: { kind, columns, rows }
+let mounted = null // what the last render drew: { requestId, kind, columns, rows }
+let remountIn = 0 // ticks until a refused blit's site is drawn again (a second, not every frame)
 let seq = 0 // prompts seen; a stale estimate must not overwrite a newer one
 let logDir = '' // where decisions and their outcomes are recorded ('' = off)
 let turnLog = null // the turn being recorded: { ts, cwd, prompt, messages, guess, verdict, latencyMs, toolCalls }
@@ -86,7 +88,7 @@ async function recordTurn($, e) {
   }
 }
 
-function statusLine() {
+function statusLine(kind) {
   const w = workout
   const seconds = Math.max(0, (Date.now() - w.startedAt) / 1000)
   const reps = Math.floor(seconds / w.ex.seconds)
@@ -96,7 +98,8 @@ function statusLine() {
     : w.result
       ? `difficulty ${w.result.difficulty}/7 (${Math.round(w.result.confidence * 100)}%) · ~${w.result.minutes} min`
       : `difficulty ~${w.guess}/7`
-  return `Pixi · ${w.ex.name} · ${verdict} · ${reps} reps · ${clock}`
+  // `cells` flags the half-block fallback: the terminal refused the PNG frames
+  return `Pixi · ${w.ex.name} · ${verdict} · ${reps} reps · ${clock}${kind === 'raster' ? ' · cells' : ''}`
 }
 
 const DEFAULT = 0x01000000 // the terminal's own color
@@ -108,6 +111,10 @@ function rasterCells(ex, frame, columns, rows) {
 }
 
 const useImage = () => renderer === 'image' || (renderer === 'auto' && !imageDenied)
+
+// A refusal that is about the picture itself, not about the site: the band
+// collapsed or a survey holding it say nothing about what the terminal can draw.
+const cannotDrawImages = (deny) => /\balt\b|placeholder|cannot read|no image/i.test(deny)
 
 export function register(on, options) {
   llmUrl = options.llm_url
@@ -134,18 +141,34 @@ export function register(on, options) {
     // The animation: the mounted sprite is repainted in place at the frame
     // rate; the status line (reps, clock) redraws once a second.
     $.clock.every(FRAME_MS, async () => {
-      if (!paneOpen || !workout || !mounted) return
+      if (!workout) return
+      if (!mounted) {
+        if (remountIn > 0 && --remountIn === 0) $.ui.invalidate('ui.render')
+        return
+      }
       workout.frame = (workout.frame + 1) % workout.ex.frames
       const { ex, frame } = workout
-      let res
-      if (mounted.kind === 'image') res = await $.ui.blit({ requestId: PANE, key: KEY, source: { file: `${$.plugin.root}/${framePath(ex, frame)}`, format: 'png' } })
-      else res = await $.ui.blit({ requestId: PANE, key: KEY, cells: rasterCells(ex, frame, mounted.columns, mounted.rows) })
+      const { requestId, kind, columns, rows } = mounted
+      const res =
+        kind === 'image'
+          ? await $.ui.blit({ requestId, key: KEY, source: { file: `${$.plugin.root}/${framePath(ex, frame)}`, format: 'png' } })
+          : await $.ui.blit({ requestId, key: KEY, cells: rasterCells(ex, frame, columns, rows) })
       if (res?.deny) {
-        if (mounted.kind === 'image' && !imageDenied && (++imageDenies >= FPS || /alt|cannot read|no image/i.test(res.deny))) {
+        if (kind === 'image' && cannotDrawImages(res.deny)) {
+          // The picture is not up yet: right after a render the terminal is
+          // still placing it, and the blit lands at the next frame. Only a
+          // second of this means it never will.
+          if (++imageDenies < FPS) return
           imageDenied = true
           $.ui.log(`thinkercise: this terminal cannot show the PNG frames (${res.deny}); drawing cells instead`, { to: 'debug' })
+          mounted = null
+          remountIn = 1
+          return
         }
-        $.ui.invalidate('ui.render')
+        // The site itself refused (the band collapsed, a survey holding it):
+        // stop blitting, and try drawing again in a second.
+        mounted = null
+        remountIn = FPS
       } else {
         imageDenies = 0
         if (frame % FPS === 0) $.ui.invalidate('ui.render')
@@ -157,6 +180,8 @@ export function register(on, options) {
   on('prompt.submit', async ($, e, next) => {
     const mine = ++seq
     const guess = guessDifficulty(e.text)
+    imageDenied = false
+    imageDenies = 0
     workout = { ex: byDifficulty(guess), frame: 0, startedAt: Date.now(), seq: mine, pending: true, result: null, guess }
     const messages = await recentMessages($)
     const kept = messages.filter((m) => m?.text?.trim() && (m.role === 'user' || m.role === 'assistant'))
@@ -187,11 +212,11 @@ export function register(on, options) {
       .finally(() => {
         if (workout?.seq !== mine) return
         workout.pending = false
-        if (paneOpen) $.ui.invalidate('ui.render')
+        $.ui.invalidate('ui.render')
       })
 
-    const res = await $.ui.open({ id: PANE, title: 'Pixi', focus: true, closeOnEscape: true, rows: Math.round(options.pane_rows ?? 22), columns: Math.round(options.pane_columns ?? 56) })
-    paneOpen = res?.isPlaced !== false
+    // Pixi steps into the band above the prompt.
+    $.ui.invalidate('ui.render')
     return next(e)
   })
 
@@ -201,41 +226,46 @@ export function register(on, options) {
     return next(e)
   })
 
+  // The main turn is done: Pixi leaves the band. A subagent's turn ending
+  // mid-task is not the end of the workout.
   on('turn.complete', async ($, e, next) => {
-    if (paneOpen) {
-      paneOpen = false
+    if (e.agentId) return next(e)
+    if (workout) {
+      workout = null
       mounted = null
-      await $.ui.close({ id: PANE })
+      $.ui.invalidate('ui.render')
     }
-    if (!e.agentId) await recordTurn($, e)
+    await recordTurn($, e)
     return next(e)
   })
 
-  // The pane is closing: ours, or the person's Esc / Ctrl+X X. Let it.
-  on('ui.close', { id: PANE }, async ($, e, next) => {
-    paneOpen = false
-    mounted = null
-    return next(e)
-  })
-
-  on('ui.render', { component: 'Pane' }, async ($, e, next) => {
-    if (e.requestId !== PANE) return next(e)
+  on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
+    // The band is one shared instance: with nothing to show, or a survey
+    // holding it, pass it on untouched.
+    if (!workout || e.props.hasSurvey) {
+      mounted = null
+      if (workout) remountIn = FPS // come back in a second, in case the band is not redrawn on its own
+      return next(e)
+    }
+    if (e.surface !== 'terminal') return next(e)
     const { Box, Text, Raster, Image } = $.ui.resolve(e)
-    if (e.surface !== 'terminal') return Text({ children: ['Pixi works out in the terminal.'] })
-    const w = workout ?? { ex: EXERCISES[0], frame: 0, startedAt: Date.now(), pending: false, result: null, guess: 1 }
-    // Fill the pane's body: one row for the status line, the rest a square
-    // box for the sprite, square in pixels given the cell's aspect ratio.
+    const w = workout
+    // A square box for the sprite (square in pixels given the cell's aspect
+    // ratio) over one row for the status line, never taller than the band
+    // shows whole: a sprite that scrolls is no sprite.
     const bodyColumns = e.props.bodyColumns ?? e.viewport?.columns ?? 40
-    const bodyRows = e.props.scroll?.bodyRows ?? 20
+    const maxRows = e.props.maxRows ?? 20
     const aspect = options.cell_aspect > 0 ? options.cell_aspect : 0.5
-    const rows = Math.max(2, Math.min(bodyRows - 1, Math.floor(bodyColumns * aspect)))
+    const wanted = Math.round(options.sprite_rows ?? 14)
+    const rows = Math.max(2, Math.min(maxRows - 1, wanted, Math.floor(bodyColumns * aspect)))
     const columns = Math.min(bodyColumns, Math.round(rows / aspect))
     const kind = useImage() ? 'image' : 'raster'
-    mounted = { kind, columns, rows }
+    mounted = { requestId: e.requestId, kind, columns, rows }
     const sprite =
       kind === 'image'
         ? Image({ key: KEY, source: { file: `${$.plugin.root}/${framePath(w.ex, w.frame)}`, format: 'png' }, columns, rows, alt: `Pixi doing ${w.ex.name}` })
         : Raster({ key: KEY, columns, rows, cells: rasterCells(w.ex, w.frame, columns, rows) })
-    return Box({ flexDirection: 'column', alignItems: 'center', children: [sprite, Text({ children: [workout ? statusLine() : `Pixi · ${w.ex.name}`], dimColor: true })] })
+    // At the right end, by the prompt, out of the way of what Claude writes.
+    return Box({ flexDirection: 'column', alignItems: 'flex-end', children: [sprite, Text({ children: [statusLine(kind)], dimColor: true })] })
   })
 }

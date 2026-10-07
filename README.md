@@ -57,9 +57,10 @@ Already have a model server running? Point Claude Code at the mod directly:
 claude --plugin-dir /path/to/Workercise
 ```
 
-Then type a prompt. Pixi's pane opens when the turn starts and closes when Claude finishes, or when you
-press <kbd>Esc</kbd> (<kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>X</kbd> closes it from anywhere). The line under Pixi shows the exercise,
-the model's verdict (`difficulty 4/7 · ~35 min`), a rep counter and a clock.
+Then type a prompt. Pixi appears in the band just above your prompt when the turn starts, drawn straight
+over the terminal's background (no frame, no dock), and leaves when Claude finishes. The line under Pixi
+shows the exercise, the model's verdict (`difficulty 4/7 · ~35 min`), a rep counter and a clock.
+<kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>Ctrl</kbd>+<kbd>A</kbd> collapses the band if you need the rows back.
 
 No model yet? `node tools/mock-model.mjs` stands in for it (it rates by prompt length), and
 `node tools/player.mjs` previews the animations without Claude Code at all (<kbd>←</kbd>/<kbd>→</kbd> switch exercise, <kbd>q</kbd> quits).
@@ -71,18 +72,22 @@ No model yet? `node tools/mock-model.mjs` stands in for it (it rates by prompt l
    │
    └─────► System One scores 1–7 (~0.4 s) ──► Pixi switches exercise when the verdict lands
                                                          │
- turn.complete / Esc ◄───────────────────────────────────┘ pane closes
+ turn.complete ◄─────────────────────────────────────────┘ Pixi leaves the band
 ```
 
 Workercise is a Claude Code **mod**: function hooks that run inside Claude Code.
 
 | Event | What it does |
 | :- | :- |
-| `prompt.submit` | Guesses the difficulty, asks the local model, opens the pane |
-| `turn.complete` | Closes the pane |
-| `ui.close` | Notices <kbd>Esc</kbd> / <kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>X</kbd> |
-| `ui.render` (Pane) | Draws the current frame and the status line, sized to the pane |
+| `prompt.submit` | Guesses the difficulty, asks the local model, puts Pixi in the band |
+| `turn.complete` | Clears the band (a subagent's turn ending doesn't count) |
+| `ui.render` (AbovePrompt) | Draws the current frame and the status line, sized to the band; yields to a survey |
 | `$.clock.every` | Repaints the sprite in place at 12 fps |
+
+The band sits directly above the prompt, so the sprite's transparent pixels show your terminal background
+through them; the half-block fallback leaves empty cells in the terminal's own colour for the same effect.
+It takes real rows (14 by default, plus the status line), so the transcript scrolls up by that much while
+Pixi is working out.
 
 The estimate is fire-and-forget. If the model is down, Pixi works out anyway on the guess, and a stale
 verdict for an earlier prompt never overrides a newer one.
@@ -182,8 +187,9 @@ Every frame is computed, so position, size and timing are exact across frames an
   10–36 frames per cycle at 12 fps.
 
 Two renderers are picked at run time. **True pixels** (`Image`) draws the pre-rendered 1024 × 1024 PNGs in
-`assets/frames`, scaled by the terminal itself. If the terminal refuses the first blit, the mod falls back to
-**half-block cells** (`Raster`), rendering the same frames into `▀`/`▄` cells. Force one with
+`assets/frames`, scaled by the terminal itself. If the terminal keeps refusing the picture for a second, the
+mod falls back to **half-block cells** (`Raster`), rendering the same frames into `▀`/`▄` cells, and the
+status line ends in `· cells`; the next prompt tries the PNGs again. Force one with
 `THINKERCISE_RENDERER=image|raster`.
 
 ```sh
@@ -204,8 +210,7 @@ Set these in Claude Code's `/config`:
 | :- | :- | :- |
 | LLM endpoint | `http://localhost:8080/v1/chat/completions` | Where the model lives |
 | LLM model | `torchcast-ai/torchcast-decision-12b` | Model name sent to it |
-| Pane width (docked) | 56 | Columns when docked beside the transcript |
-| Pane height (inline) | 22 | Rows when above the prompt (capped at a third of the terminal) |
+| Sprite height | 14 | Rows the sprite takes above the prompt (capped at what the band can show whole) |
 | Cell aspect ratio | 0.5 | Cell width ÷ height, so the sprite comes out square (0.43 for Iosevka) |
 | Record decisions | on | Keep verdicts and turn costs for tuning |
 
@@ -226,10 +231,11 @@ claude plugin validate .
 claude plugin test
 ```
 
-The tests drive the mod with stubbed network and UI: a prompt opens the pane with the right size; the image
-path names the right frame for a verdict; difficulty 7 is burpees; the raster renderer packs half-block
-cells; a dead model leaves the guess in place; a late verdict for an older prompt is ignored; `turn.complete`
-closes the pane.
+The tests drive the mod with stubbed network and UI: a prompt puts a sprite of the right size in the band,
+and it never outgrows a short band; the image path names the right frame for a verdict; difficulty 7 is
+burpees; the raster renderer packs half-block cells on the terminal's own background; a dead model leaves the
+guess in place; a late verdict for an older prompt is ignored; a survey gets the band; a subagent finishing
+doesn't end the workout; `turn.complete` clears the band.
 
 ## License
 

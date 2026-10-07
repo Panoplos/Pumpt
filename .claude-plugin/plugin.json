@@ -1,7 +1,7 @@
 {
   "name": "thinkercise",
   "version": "0.1.0",
-  "description": "Pixi works out in a pane while Claude works: pixel-art exercises matched to how hard your prompt is, as rated by a locally hosted torchcast-decision-12b.",
+  "description": "Pixi works out above your prompt while Claude works: pixel-art exercises matched to how hard your prompt is, as rated by a locally hosted torchcast-decision-12b.",
   "author": { "name": "Makoto" },
   "userConfig": {
     "llm_url": {
@@ -16,17 +16,11 @@
       "description": "Model name sent to the endpoint",
       "default": "torchcast-ai/torchcast-decision-12b"
     },
-    "pane_columns": {
+    "sprite_rows": {
       "type": "number",
-      "title": "Pane width (docked)",
-      "description": "Body columns asked for when the pane docks beside the transcript (fullscreen mode); the sprite fills it",
-      "default": 56
-    },
-    "pane_rows": {
-      "type": "number",
-      "title": "Pane height (inline)",
-      "description": "Body rows asked for when the pane sits above the prompt; Claude Code caps it at a third of the terminal",
-      "default": 22
+      "title": "Sprite height",
+      "description": "Rows the sprite takes in the band above the prompt (plus one for the status line); capped at what the band can show whole, about half the terminal",
+      "default": 14
     },
     "cell_aspect": {
       "type": "number",

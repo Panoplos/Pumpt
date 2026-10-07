@@ -1,17 +1,19 @@
 import { expect, mock, test } from 'claude-code/testing'
 
-const PANE = {
+// The band above the prompt, as the terminal raises it: 115 body columns
+// (120 less the engine's five), 20 rows to draw in.
+const BAND = {
   plugin: 'thinkercise',
-  component: 'Pane',
-  requestId: 'thinkercise',
+  component: 'AbovePrompt',
+  requestId: 'above-prompt',
   surface: 'terminal',
   viewport: { columns: 120, rows: 50 },
   props: {
-    title: 'Pixi',
-    isFocused: true,
-    bodyColumns: 40,
-    placement: 'inline',
-    scroll: { offset: 0, bodyRows: 20 },
+    hasSurvey: false,
+    isWorking: true,
+    maxRows: 20,
+    bodyColumns: 115,
+    scroll: { offset: 0, bodyRows: 19 },
     view: {},
   },
 } as const
@@ -46,86 +48,142 @@ function setup(
   on('prompt.submit', ($, e) => ({ text: e.text }))
   on('turn.complete', ($, e) => ({ text: e.answer }))
   on('session.messages', () => ({ value: [] }))
+  // beneath the plugin, the band is empty: what the engine draws when the mod passes
+  on('ui.render', ($, e) => $.ui.resolve(e).Box({ children: [] }))
   // GET /v1/models answers what the server loaded; everything else is the estimate
   on('http.fetch', ($, e) =>
     e.init?.method === 'GET' ? { value: { status: 200, ok: true, headers: {}, text: JSON.stringify({ data: [{ id: 'torchcast-decision-12b' }] }) } } : fetch($, e),
   )
-  const opened: any[] = []
-  const closed: string[] = []
   const blits: any[] = []
-  on('ui.open', ($, e) => {
-    opened.push(e)
-    return { value: { isPlaced: true } }
-  })
-  on('ui.close', ($, e) => {
-    closed.push(e.id)
-    return { value: {} }
-  })
   on('ui.blit', ($, e) => {
     blits.push(e)
     return blit(e)
   })
-  return { clock, opened, closed, blits }
+  return { clock, blits }
 }
 
-test('a prompt opens the pane, draws true-pixel frames, and the verdict lands in the status line', async ($, on) => {
-  const { opened, closed } = setup(on)
+test('a prompt puts Pixi in the band, in true-pixel frames, and the verdict lands in the status line', async ($, on) => {
+  setup(on)
   await $.session.start({ cwd: '/tmp' })
+
+  // Nothing in the band before a prompt
+  const idle = await $.ui.mount(BAND)
+  expect(await idle.find({ type: 'Image' })).toBeUndefined()
+  expect(await idle.find({ type: 'Text', text: /Pixi/ })).toBeUndefined()
+  await idle.unmount()
+
   await $.prompt.submit({ cwd: '/tmp', text: 'refactor the auth module across three services' })
-
-  expect(opened.length).toBe(1)
-  expect(opened[0].id).toBe('thinkercise')
-  expect(opened[0].closeOnEscape).toBe(true)
-  expect(opened[0].rows).toBeGreaterThan(0)
-  expect(opened[0].columns).toBeGreaterThan(0)
-
-  const ui = await $.ui.mount(PANE)
-  // The sprite fills the body: 20 rows less one for the status line, twice as many columns
+  const ui = await $.ui.mount(BAND)
+  // The sprite takes the 14 rows asked for (less than the band's 19), twice as many columns
   const img = await ui.find({ type: 'Image' })
   expect(img).toBeDefined()
   expect(img?.props.source?.format).toBe('png')
   expect(img?.props.source?.file).toMatch(/\/assets\/frames\/sit-ups\/f0\.png$/)
-  expect(img?.props.columns).toBe(38)
-  expect(img?.props.rows).toBe(19)
+  expect(img?.props.columns).toBe(28)
+  expect(img?.props.rows).toBe(14)
   // Difficulty 4 is sit-ups, with the model's minute estimate
   expect(await ui.find({ type: 'Text', text: /sit-ups · difficulty 4\/7 \(100%\) · ~40 min/ })).toBeDefined()
   await ui.unmount()
 
-  // Ending the turn closes the pane
+  // Ending the turn clears the band
   await $.turn.complete(TURN_DONE)
-  expect(closed).toEqual(['thinkercise'])
+  const after = await $.ui.mount(BAND)
+  expect(await after.find({ type: 'Image' })).toBeUndefined()
+  await after.unmount()
+})
+
+test('the sprite never outgrows the band', async ($, on) => {
+  setup(on)
+  await $.session.start({ cwd: '/tmp' })
+  await $.prompt.submit({ cwd: '/tmp', text: 'refactor the auth module across three services' })
+  // a short band: 9 rows, one of them the status line
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, maxRows: 9, scroll: { offset: 0, bodyRows: 8 } } })
+  const img = await ui.find({ type: 'Image' })
+  expect(img?.props.rows).toBe(8)
+  expect(img?.props.columns).toBe(16)
+  await ui.unmount()
 })
 
 test('the clock repaints the sprite in place, frame by frame', async ($, on) => {
   const { clock, blits } = setup(on)
   await $.session.start({ cwd: '/tmp' })
   await $.prompt.submit({ cwd: '/tmp', text: 'refactor the auth module across three services' })
-  const ui = await $.ui.mount(PANE)
+  const ui = await $.ui.mount(BAND)
   await clock.advance(84)
   await clock.advance(84)
   expect(blits.length).toBe(2)
-  expect(blits[0].requestId).toBe('thinkercise')
+  expect(blits[0].requestId).toBe('above-prompt')
   expect(blits[0].key).toBe('pixi')
   expect(blits[0].source?.file).toMatch(/\/assets\/frames\/sit-ups\/f1\.png$/)
   expect(blits[1].source?.file).toMatch(/\/assets\/frames\/sit-ups\/f2\.png$/)
   await ui.unmount()
   await $.turn.complete(TURN_DONE)
-  // a closed pane stops the repaints
+  // a finished turn stops the repaints
   await clock.advance(84)
   expect(blits.length).toBe(2)
 })
 
-test('a terminal that cannot show images gets cells instead', async ($, on) => {
-  const { clock } = setup(on, { blit: () => ({ value: { deny: 'the Image draws its alt there: no images on this terminal' } }) })
+test('a subagent finishing its turn does not end the workout', async ($, on) => {
+  const { clock, blits } = setup(on)
   await $.session.start({ cwd: '/tmp' })
   await $.prompt.submit({ cwd: '/tmp', text: 'refactor the auth module across three services' })
-  const ui = await $.ui.mount(PANE)
-  expect(await ui.find({ type: 'Image' })).toBeDefined()
+  const ui = await $.ui.mount(BAND)
+  await $.turn.complete({ ...TURN_DONE, agentId: 'agent-1' })
   await clock.advance(84)
+  expect(blits.length).toBe(1)
   await ui.unmount()
-  const again = await $.ui.mount(PANE)
+})
+
+test('a survey holding the band gets it', async ($, on) => {
+  const { clock, blits } = setup(on)
+  await $.session.start({ cwd: '/tmp' })
+  await $.prompt.submit({ cwd: '/tmp', text: 'refactor the auth module across three services' })
+  const ui = await $.ui.mount({ ...BAND, props: { ...BAND.props, hasSurvey: true } })
+  expect(await ui.find({ type: 'Image' })).toBeUndefined()
+  await clock.advance(84)
+  expect(blits.length).toBe(0)
+  await ui.unmount()
+})
+
+test('a terminal that cannot show images gets cells instead, after a second of trying', async ($, on) => {
+  const { clock, blits } = setup(on, { blit: () => ({ value: { deny: 'the Image draws its alt there: no images on this terminal' } }) })
+  await $.session.start({ cwd: '/tmp' })
+  await $.prompt.submit({ cwd: '/tmp', text: 'refactor the auth module across three services' })
+  const ui = await $.ui.mount(BAND)
+  expect(await ui.find({ type: 'Image' })).toBeDefined()
+  // a few refusals are the terminal still putting the picture up: the PNG stays
+  for (let i = 0; i < 6; i++) await clock.advance(84)
+  await ui.unmount()
+  const still = await $.ui.mount(BAND)
+  expect(await still.find({ type: 'Image' })).toBeDefined()
+  await still.unmount()
+  // a second of them is not
+  for (let i = 0; i < 8; i++) await clock.advance(84)
+  expect(blits.length).toBe(12)
+  const again = await $.ui.mount(BAND)
   expect(await again.find({ type: 'Image' })).toBeUndefined()
   expect(await again.find({ type: 'Raster' })).toBeDefined()
+  expect(await again.find({ type: 'Text', text: /· cells$/ })).toBeDefined()
+  await again.unmount()
+  // the next prompt gives the PNGs another chance: the refusal may have been a passing one
+  await $.turn.complete(TURN_DONE)
+  await $.prompt.submit({ cwd: '/tmp', text: 'and now the tests' })
+  const next = await $.ui.mount(BAND)
+  expect(await next.find({ type: 'Image' })).toBeDefined()
+  await next.unmount()
+})
+
+test('a refusal about the site, not the picture, keeps the image renderer', async ($, on) => {
+  const { clock, blits } = setup(on, { blit: () => ({ value: { deny: 'not mounted' } }) })
+  await $.session.start({ cwd: '/tmp' })
+  await $.prompt.submit({ cwd: '/tmp', text: 'refactor the auth module across three services' })
+  const ui = await $.ui.mount(BAND)
+  for (let i = 0; i < 20; i++) await clock.advance(84)
+  await ui.unmount()
+  // one refused blit, then a second a second later: the sprite is re-mounted once a second, not every frame
+  expect(blits.length).toBe(2)
+  const again = await $.ui.mount(BAND)
+  expect(await again.find({ type: 'Image' })).toBeDefined()
   await again.unmount()
 })
 
@@ -133,7 +191,7 @@ test('the hardest verdict gets burpees', async ($, on) => {
   setup(on, { fetch: () => verdict(7) })
   await $.session.start({ cwd: '/tmp' })
   await $.prompt.submit({ cwd: '/tmp', text: 'port the whole backend to a new framework' })
-  const ui = await $.ui.mount(PANE)
+  const ui = await $.ui.mount(BAND)
   expect((await ui.find({ type: 'Image' }))?.props.source?.file).toMatch(/\/assets\/frames\/burpees\/f0\.png$/)
   expect(await ui.find({ type: 'Text', text: /burpees · difficulty 7\/7 \(100%\) · ~480 min/ })).toBeDefined()
   await ui.unmount()
@@ -143,18 +201,22 @@ test('THINKERCISE_RENDERER=raster draws half-block cells', async ($, on) => {
   setup(on, { env: { THINKERCISE_RENDERER: 'raster' } })
   await $.session.start({ cwd: '/tmp' })
   await $.prompt.submit({ cwd: '/tmp', text: 'fix the typo in the readme' })
-  const ui = await $.ui.mount(PANE)
+  const ui = await $.ui.mount(BAND)
   expect(await ui.find({ type: 'Image' })).toBeUndefined()
   const raster = await ui.find({ type: 'Raster' })
   expect(raster).toBeDefined()
-  expect(raster?.props.columns).toBe(38)
-  expect(raster?.props.rows).toBe(19)
+  expect(raster?.props.columns).toBe(28)
+  expect(raster?.props.rows).toBe(14)
   // cells are [codePoint, fg, bg] u32 triplets; the sprite is half blocks on the terminal's own background
   const words = new Uint32Array(Uint8Array.fromBase64(raster?.props.cells ?? '').buffer)
-  expect(words.length).toBe(38 * 19 * 3)
-  let blocks = 0
-  for (let i = 0; i < words.length; i += 3) if (words[i] === 0x2580 || words[i] === 0x2584) blocks++
-  expect(blocks).toBeGreaterThan(100)
+  expect(words.length).toBe(28 * 14 * 3)
+  let blocks = 0, clear = 0
+  for (let i = 0; i < words.length; i += 3) {
+    if (words[i] === 0x2580 || words[i] === 0x2584) blocks++
+    if (words[i + 2] === 0x01000000) clear++
+  }
+  expect(blocks).toBeGreaterThan(50)
+  expect(clear).toBeGreaterThan(50)
   await ui.unmount()
 })
 
@@ -166,7 +228,7 @@ test('the model being down leaves the guess in place', async ($, on) => {
   })
   await $.session.start({ cwd: '/tmp' })
   await $.prompt.submit({ cwd: '/tmp', text: 'rename this variable' })
-  const ui = await $.ui.mount(PANE)
+  const ui = await $.ui.mount(BAND)
   expect(await ui.find({ type: 'Text', text: /neck rolls · difficulty ~1\/7/ })).toBeDefined()
   await ui.unmount()
 })
@@ -183,7 +245,7 @@ test('a stale verdict never overwrites a newer prompt', async ($, on) => {
   // the first prompt's verdict arrives late, after the second was already rated
   answerFirst(verdict(7))
   for (let i = 0; i < 5; i++) await Promise.resolve()
-  const ui = await $.ui.mount(PANE)
+  const ui = await $.ui.mount(BAND)
   expect((await ui.find({ type: 'Image' }))?.props.source?.file).toMatch(/\/assets\/frames\/arm-circles\/f0\.png$/)
   expect(await ui.find({ type: 'Text', text: /arm circles · difficulty 2\/7/ })).toBeDefined()
   await ui.unmount()
@@ -248,7 +310,7 @@ test('a /v1/systemone URL asks the shim a score question', async ($, on) => {
   expect(bodies.every((b) => b.questions.decision.type === 'score' && b.questions.decision.criteria.length === 7)).toBe(true)
   expect(bodies[0].state).toMatch(/^New task:\nwarm up/)
   expect(bodies[1].state).toMatch(/New task:\nmigrate the monolith/)
-  const ui = await $.ui.mount(PANE)
+  const ui = await $.ui.mount(BAND)
   expect((await ui.find({ type: 'Image' }))?.props.source?.file).toMatch(/\/assets\/frames\/push-ups\/f0\.png$/)
   // the expected minutes over the distribution: .05*15+.1*40+.15*90+.6*240+.1*480 = 210
   expect(await ui.find({ type: 'Text', text: /push-ups · difficulty 6\/7 \(60%\) · ~210 min/ })).toBeDefined()
