@@ -1,0 +1,44 @@
+{
+  "name": "thinkercise",
+  "version": "0.1.0",
+  "description": "Pixi works out in a pane while Claude works: pixel-art exercises matched to how hard your prompt is, as rated by a locally hosted torchcast-decision-12b.",
+  "author": { "name": "Makoto" },
+  "userConfig": {
+    "llm_url": {
+      "type": "string",
+      "title": "LLM endpoint",
+      "description": "OpenAI-compatible chat completions URL of the locally hosted model",
+      "default": "http://localhost:8080/v1/chat/completions"
+    },
+    "llm_model": {
+      "type": "string",
+      "title": "LLM model",
+      "description": "Model name sent to the endpoint",
+      "default": "torchcast-ai/torchcast-decision-12b"
+    },
+    "pane_columns": {
+      "type": "number",
+      "title": "Pane width (docked)",
+      "description": "Body columns asked for when the pane docks beside the transcript (fullscreen mode); the sprite fills it",
+      "default": 56
+    },
+    "pane_rows": {
+      "type": "number",
+      "title": "Pane height (inline)",
+      "description": "Body rows asked for when the pane sits above the prompt; Claude Code caps it at a third of the terminal",
+      "default": 22
+    },
+    "cell_aspect": {
+      "type": "number",
+      "title": "Cell aspect ratio",
+      "description": "Width of a terminal cell divided by its height, so the sprite comes out square: 0.5 for most fonts, 0.43 for Iosevka, 0.6 for wide ones",
+      "default": 0.5
+    },
+    "log_decisions": {
+      "type": "boolean",
+      "title": "Record decisions",
+      "description": "Keep each prompt's verdict and what the turn really cost under ~/.thinkercise/decisions, so tools/eval can tune the estimator",
+      "default": true
+    }
+  }
+}

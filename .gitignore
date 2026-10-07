@@ -1,0 +1,28 @@
+# macOS / editors
+.DS_Store
+.idea/
+.vscode/
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Generated types and local backups
+.claude-plugin/types/
+*.bak
+
+# Third-party reference copy (llama.cpp's server README)
+llama_server.md
+
+# Local eval data and model artefacts
+prompts.json
+labels.json
+*.safetensors
+*.gguf
+models/
+.thinkercise-mlx/
+
+# Local state and secrets
+.env
+.env.*
+.claude/settings.local.json
