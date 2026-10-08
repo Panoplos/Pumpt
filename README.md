@@ -105,7 +105,7 @@ fallback leaves empty cells in the terminal's own colour for the same effect.
 The estimate is fire-and-forget. If the model is down, you still get a set from the guess, and a stale
 verdict for an earlier prompt never overrides a newer one.
 
-## The model: System One
+## The exercise chooser: a System One model
 
 `torchcast-ai/torchcast-decision-12b` is not a chat model. It is a typed decision model (a Gemma 4 12B
 fine-tune): each decision is one forward pass that reads the probability of every option letter at the
