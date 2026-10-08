@@ -47,10 +47,9 @@ served locally, and every frame of the coach is computed by a small procedural r
 | <img src="docs/gifs/neck-roll.gif" width="192" /><br>**1 · Neck rolls**<br><sub>a set of 20</sub> | <img src="docs/gifs/arm-circles.gif" width="192" /><br>**2 · Arm circles**<br><sub>a set of 40</sub> | <img src="docs/gifs/jumping-jacks.gif" width="192" /><br>**3 · Jumping jacks**<br><sub>a set of 50</sub> | <img src="docs/gifs/sit-ups.gif" width="192" /><br>**4 · Sit-ups**<br><sub>a set of 30</sub> |
 | <img src="docs/gifs/squats.gif" width="192" /><br>**5 · Squats**<br><sub>a set of 25</sub> | <img src="docs/gifs/push-ups.gif" width="192" /><br>**6 · Push-ups**<br><sub>a set of 20</sub> | <img src="docs/gifs/burpees.gif" width="192" /><br>**7 · Burpees**<br><sub>a set of 12</sub> | <img src="docs/gifs/outro.gif" width="192" /><br>**The bow**<br><sub>after any set</sub> |
 
-Every set opens the same way: a **READY?** card holds for a beat while the model decides (so the title
-never names the wrong exercise), then your exercise's name balloons in, arcade-style, swells and pops in a
-burst of confetti, and there's your coach in the opening pose. Get up. A set you finish ends with a leap, a
-landing and a **GOOD JOB!**; a turn that ends first just clears the band, and you sit back down.
+Hit Enter, and your exercise's name pops onto the screen with your coach already in position. Get up and
+match him, rep for rep. Finish the set before Claude finishes the turn and you get a **GOOD JOB!** and a bow;
+if Claude beats you to it, the band clears and you sit back down. Either way, you moved.
 
 ## Quick start
 
