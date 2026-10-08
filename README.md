@@ -68,9 +68,9 @@ Already have a model server running? Point Claude Code at the mod directly:
 claude --plugin-dir /path/to/Pumpt
 ```
 
-Then type a prompt. Your coach appears in the band just above it when the turn starts, drawn straight
-over the terminal's background (no frame, no dock), and leaves when Claude finishes, or when your set is
-done and the bow is taken. The line under him shows your exercise, the model's verdict
+Then type a prompt. Your coach appears in a strip just above it when the turn starts (the transcript
+shifts up to make room, and gets it back when he leaves), and leaves when Claude finishes, or when your
+set is done and the bow is taken. The line under him shows your exercise, the model's verdict
 (`difficulty 4/7 · ~4 min`), your reps (`12/30 reps`) and a clock.
 <kbd>Ctrl</kbd>+<kbd>X</kbd> <kbd>Ctrl</kbd>+<kbd>A</kbd> collapses the band if you need the rows back.
 
@@ -97,10 +97,10 @@ Pumpt! is a Claude Code **mod**: function hooks that run inside Claude Code.
 | `ui.render` (AbovePrompt) | Draws the current frame and the status line, sized to the band; yields to a survey |
 | `$.clock.every` | Repaints the sprite in place at 12 fps and runs the set: intro → reps → outro → an empty band |
 
-The band sits directly above the prompt, so the sprite's transparent pixels show your terminal background
-through them; the half-block fallback leaves empty cells in the terminal's own colour for the same effect.
-It takes real rows (14 by default, plus the status line), so the transcript scrolls up by that much while
-you work out.
+The band is Claude Code's strip directly above the prompt: it takes real rows (14 by default, plus the
+status line), so the transcript shifts up by that much while you work out and comes back when the band
+empties. Inside it the sprite's transparent pixels show your terminal background, and the half-block
+fallback leaves empty cells in the terminal's own colour for the same effect.
 
 The estimate is fire-and-forget. If the model is down, you still get a set from the guess, and a stale
 verdict for an earlier prompt never overrides a newer one.
