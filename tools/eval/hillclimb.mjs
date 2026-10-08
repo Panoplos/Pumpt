@@ -1,7 +1,7 @@
 // Hill-climbs the estimator's knobs (hooks/config.js) against what prompts
 // really cost.
 //
-// Data: the mod's own records (~/.thinkercise/decisions/*.json: prompt, recent
+// Data: the mod's own records (~/.pumpt/decisions/*.json: prompt, recent
 // messages, verdict, and the turn's measured duration and tool calls) plus,
 // optionally, transcript prompts from extract.py with hand labels. The target
 // for a logged turn is its duration's level (DURATION_LEVELS); for a labelled
@@ -35,19 +35,19 @@ const args = process.argv.slice(2)
 const opt = (name, fallback) => (args.includes(name) ? args[args.indexOf(name) + 1] : fallback)
 const flag = (name) => args.includes(name)
 const HOME = homedir()
-const LOG_DIR = process.env.THINKERCISE_LOG_DIR || join(HOME, '.thinkercise', 'decisions')
-const CACHE = join(HOME, '.thinkercise', 'readouts.json')
-const LEDGER = join(HOME, '.thinkercise', 'ledger.jsonl')
-const DURATION_LEVELS = [1, 3, 8, 20, 45, 120] // minutes; a turn shorter than the first is level 1, longer than the last 7
+const LOG_DIR = process.env.PUMPT_LOG_DIR || join(HOME, '.pumpt', 'decisions')
+const CACHE = join(HOME, '.pumpt', 'readouts.json')
+const LEDGER = join(HOME, '.pumpt', 'ledger.jsonl')
+const DURATION_LEVELS = [0.75, 1.5, 3.5, 8, 20, 45] // minutes, the midpoints of config.minutes; a turn shorter than the first is level 1, longer than the last 7
 const MARGIN = 0.01 // in ranked probability score (0 perfect, 1 worst)
 
 const manifest = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'))
-const url = process.env.THINKERCISE_LLM_URL || manifest.userConfig.llm_url.default
+const url = process.env.PUMPT_LLM_URL || manifest.userConfig.llm_url.default
 const http = async (u, body) => {
   const res = await fetch(u, body ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) } : {})
   return { ok: res.ok, status: res.status, text: await res.text() }
 }
-const model = await resolveModel((u) => http(u), url, process.env.THINKERCISE_LLM_MODEL || manifest.userConfig.llm_model.default)
+const model = await resolveModel((u) => http(u), url, process.env.PUMPT_LLM_MODEL || manifest.userConfig.llm_model.default)
 
 // --- data ---------------------------------------------------------------------
 
@@ -119,11 +119,16 @@ async function score(cfg, subset = rows) {
   return { fitness: mean(scores), mae: mean(discrete), within1: discrete.filter((d) => d <= 1).length / discrete.length, minutesLogErr: mean(logErr) }
 }
 const folds = (n = 4) => Array.from({ length: n }, (_, k) => rows.filter((_, i) => i % n !== k))
+// A candidate is judged on the metric it can move: the level distribution's
+// RPS for everything but a minutes refit, which leaves the distribution as it
+// is and is judged on the minutes log-error instead.
+const MARGINS = { fitness: MARGIN, minutesLogErr: 0.05 }
 async function beats(candidate, base) {
+  const metric = candidate.metric ?? 'fitness'
   const whole = await score(candidate)
-  if (!(whole.fitness < base.fitness - MARGIN)) return { ok: false, whole }
+  if (!(whole[metric] < base[metric] - MARGINS[metric])) return { ok: false, whole }
   let wins = 0
-  for (const fold of folds()) if ((await score(candidate, fold)).fitness < (await score(base.cfg, fold)).fitness) wins++
+  for (const fold of folds()) if ((await score(candidate, fold))[metric] < (await score(base.cfg, fold))[metric]) wins++
   return { ok: wins >= 3, whole, wins }
 }
 const fmt = (s) => `RPS ${s.fitness.toFixed(3)} · MAE ${s.mae.toFixed(2)} · within 1: ${(s.within1 * 100).toFixed(0)}%${Number.isNaN(s.minutesLogErr) ? '' : ` · minutes log-error ${s.minutesLogErr.toFixed(2)}`}`
@@ -151,7 +156,7 @@ async function refitMinutes(cfg) {
     const w = Math.min(1, xs.length / 10)
     return Math.round(Math.exp(w * Math.log(med) + (1 - w) * Math.log(m)))
   })
-  return minutes.some((m, i) => m !== cfg.minutes[i]) ? { ...cfg, minutes, note: `minutes ${minutes.join('/')}` } : null
+  return minutes.some((m, i) => m !== cfg.minutes[i]) ? { ...cfg, minutes, note: `minutes ${minutes.join('/')}`, metric: 'minutesLogErr' } : null
 }
 
 // Wording rewrites from Claude, shown the worst-rated rows.
@@ -194,6 +199,7 @@ function writeConfig(cfg) {
   copyFileSync(path, path + '.bak')
   const body = { ...cfg }
   delete body.note
+  delete body.metric
   body.version = (incumbent.version ?? 0) + 1
   writeFileSync(path, `// The estimator's tunable knobs; written by tools/eval/hillclimb.mjs (previous version in config.js.bak).\n// See hooks/config.js.bak or git history for the hand-written comments.\nexport default ${JSON.stringify(body, null, 2)}\n`)
 }
@@ -216,7 +222,7 @@ for (let round = 1; round <= rounds; round++) {
   for (const cand of candidates) {
     const { ok, whole, wins } = await beats(cand, best)
     const line = `  ${cand.note.padEnd(28)} ${fmt(whole)}${wins != null ? ` · folds ${wins}/4` : ''}`
-    appendFileSync(LEDGER, JSON.stringify({ ts: new Date().toISOString(), rows: rows.length, note: cand.note, ...whole, accepted: ok, cfg: { ...cand, note: undefined } }) + '\n')
+    appendFileSync(LEDGER, JSON.stringify({ ts: new Date().toISOString(), rows: rows.length, note: cand.note, metric: cand.metric ?? 'fitness', ...whole, accepted: ok, cfg: { ...cand, note: undefined, metric: undefined } }) + '\n')
     if (ok) {
       best = { cfg: cand, ...whole }
       improved = true

@@ -1,5 +1,5 @@
 {
-  "name": "thinkercise",
+  "name": "pumpt",
   "version": "0.1.0",
   "description": "Pixi works out above your prompt while Claude works: pixel-art exercises matched to how hard your prompt is, as rated by a locally hosted torchcast-decision-12b.",
   "author": { "name": "Makoto" },
@@ -22,6 +22,12 @@
       "description": "Rows the sprite takes in the band above the prompt (plus one for the status line); capped at what the band can show whole, about half the terminal",
       "default": 14
     },
+    "show_status": {
+      "type": "boolean",
+      "title": "Status line",
+      "description": "Show the line under Pixi (exercise, verdict, reps, clock); off gives the sprite that row",
+      "default": true
+    },
     "cell_aspect": {
       "type": "number",
       "title": "Cell aspect ratio",
@@ -31,7 +37,7 @@
     "log_decisions": {
       "type": "boolean",
       "title": "Record decisions",
-      "description": "Keep each prompt's verdict and what the turn really cost under ~/.thinkercise/decisions, so tools/eval can tune the estimator",
+      "description": "Keep each prompt's verdict and what the turn really cost under ~/.pumpt/decisions, so tools/eval can tune the estimator",
       "default": true
     }
   }

@@ -18,8 +18,10 @@ export default {
     'large: a refactor or migration across a codebase',
     'huge: a multi-day build or a deep investigation',
   ],
-  // expected minutes of work per level; the verdict's minutes is the expectation over the distribution
-  minutes: [1, 5, 15, 40, 90, 240, 480],
+  // minutes an agent's turn takes per level (geometric: each level about 2.5x
+  // the last); the verdict's minutes is the geometric expectation over the
+  // distribution, so a little mass on the top levels does not swamp it
+  minutes: [0.5, 1, 2, 5, 12, 30, 60],
   // how much recent conversation goes in: the last `exchanges` spoken prompt/answer pairs, `chars` each
   context: { exchanges: 1, chars: 300 },
   // how a level is read off the distribution: 'argmax' (the shim's choice) or 'median'

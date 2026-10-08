@@ -72,13 +72,16 @@ const EYES = {
 const MOUTHS = {
   smirk: null,
   // a small o: an exhale
-  o: { x: 20, y: 35, rows: ['SSSSSSSSSSS', 'SSSSOOOSSSS', 'SSSOPKPOSSS', 'SSSSOOOSSSS'] },
+  o: { x: 20, y: 35, rows: ['SSSSSSSSSSS', 'SSSSOOOSSSS', 'SSSOPPPOSSS', 'SSSSOOOSSSS'] },
   // a big breath, a shout at the apex
-  open: { x: 20, y: 35, rows: ['SSSOOOOOSSS', 'SSOPPKPPOSS', 'SSOPKKKPOSS', 'SSSOOOOOSSS'] },
+  // the tongue sits at the bottom of the mouth, never against the top lip
+  open: { x: 20, y: 34, rows: ['SSSSSSSSSS.', 'SSSOOOOOSSS', 'SSOPPPPPOSS', 'SSOPKKKPOSS', 'SSSOOOOOSSS'] },
   // gritted teeth: effort
-  grit: { x: 20, y: 35, rows: ['SOOOOOOOOOS', 'SOJOJOJOJOS', 'SOOOOOOOOOS', 'SSSSSSSSSSS'] },
+  // gritted teeth two rows tall: one-row teeth vanish under a few degrees of head rotation
+  // the row above each big mouth clears the smirk's two dark pixels, which would read as a fat upper lip
+  grit: { x: 20, y: 34, rows: ['SSSSSSSSSS.', 'SOOOOOOOOOS', 'SOJOJOJOJOS', 'SOJOJOJOJOS', 'SOOOOOOOOOS'] },
   // a wide grin with teeth
-  grin: { x: 19, y: 35, rows: ['OSSSSSSSSSSSO', 'SOJJJJJJJJJOS', 'SSOJJJJJJJOSS', 'SSSOOOOOOOSSS'] },
+  grin: { x: 19, y: 34, rows: ['.SSSSSSSSSS..', 'OSSSSSSSSSSSO', 'SOJJJJJJJJJOS', 'SSOJJJJJJJOSS', 'SSSOOOOOOOSSS'] },
 }
 
 const headCache = new Map()
@@ -483,16 +486,25 @@ export function drawPose(cv, pose) {
   }
 
   // torso: a tunic from the hips to the neck, narrow at the waist, belted,
-  // with a V-neck trim (and a pouch on the belt from the side)
+  // with a V-neck trim (and a pouch on the belt from the side); `bulk` (0..1)
+  // puts a belly on it, forward in side view, and lets the belt out
   {
-    const w0 = side ? 5 : 8, w1 = side ? 7 : 12 // half-widths at the hip and the chest
+    const bulk = pose.bulk ?? 0
+    const w0 = (side ? 5 : 8) + 3 * bulk, w1 = (side ? 7 : 12) + 2 * bulk // half-widths at the hip and the chest
     const pt = (u, v) => [hx + right[0] * u + up[0] * v, hy + right[1] * u + up[1] * v]
     const body = polygon(
       [pt(-w0, -2), pt(w0, -2), pt(w0 + 0.5, torsoLen * 0.35), pt(w1, torsoLen * 0.8), pt(w1, torsoLen + 1), pt(-w1, torsoLen + 1), pt(-w1, torsoLen * 0.8), pt(-w0 - 0.5, torsoLen * 0.35)],
       C.tunic,
     )
-    const belt = polygon([pt(-w0 - 1, 3), pt(w0 + 1, 3), pt(w0 + 1, 6), pt(-w0 - 1, 6)], C.gold)
-    const prims = [body, belt]
+    const prims = [body]
+    if (bulk > 0) {
+      // the belly: a round front, low on the tunic, that the belt goes over
+      const [bx, by] = pt(side ? w0 - 2 + 3 * bulk : 0, 6 + 3 * bulk)
+      prims.push(ellipse(bx, by, (side ? 6 : w0 + 1) + 5 * bulk, 6 + 5 * bulk, C.tunic))
+    }
+    const bw = w0 + 1 + (side ? 10 * bulk : 2 * bulk) // out to the belly's front, which the ellipse puts at w0 + 1 + 8 * bulk
+    const belt = polygon([pt(-w0 - 1, 3), pt(bw, 3), pt(bw, 6), pt(-w0 - 1, 6)], C.gold)
+    prims.push(belt)
     if (!side) {
       prims.push(polygon([pt(-2, 2), pt(2, 2), pt(2, 7), pt(-2, 7)], C.goldShade))
       prims.push(flat(capsule(...pt(-5.5, torsoLen), ...pt(0, torsoLen - 5.5), 0.7, C.gold)), flat(capsule(...pt(5.5, torsoLen), ...pt(0, torsoLen - 5.5), 0.7, C.gold)))
@@ -534,11 +546,12 @@ export function drawPose(cv, pose) {
 
   // the ground shadow: the footprint, fading as the feet leave the floor
   {
-    const lift = Math.max(0, FLOOR - footBottom)
+    const floor = pose.floor ?? FLOOR
+    const lift = Math.max(0, floor - footBottom)
     const k = Math.max(0.25, 1 - lift / 30)
     const cx = (joints.ankleL[0] + joints.ankleR[0]) / 2 + (side ? 3 * facing : 0)
     const rx = (side ? 14 : Math.abs(joints.ankleL[0] - joints.ankleR[0]) / 2 + 9) * k
-    parts.push({ z: -1, shadow: [cx, FLOOR + 2, rx, 2.2 * k] })
+    parts.push({ z: -1, shadow: [cx, floor + 2, rx, 2.2 * k] })
   }
 
   parts.sort((a, b) => a.z - b.z)
@@ -802,20 +815,328 @@ function burpees(t) {
   }
 }
 
+// `reps` is where a workout stops on its own: a set that is a lot for the
+// easy moves and honest for the hard ones, after which Pixi takes a bow.
 export const EXERCISES = [
-  { id: 'neck-roll', name: 'neck rolls', difficulty: 1, seconds: 3.0, pose: neckRoll },
-  { id: 'arm-circles', name: 'arm circles', difficulty: 2, seconds: 1.2, pose: armCircles },
-  { id: 'jumping-jacks', name: 'jumping jacks', difficulty: 3, seconds: 0.85, pose: jumpingJacks },
-  { id: 'sit-ups', name: 'sit-ups', difficulty: 4, seconds: 1.7, pose: sitUps },
-  { id: 'squats', name: 'squats', difficulty: 5, seconds: 1.8, pose: squats },
-  { id: 'push-ups', name: 'push-ups', difficulty: 6, seconds: 1.5, pose: pushUps },
-  { id: 'burpees', name: 'burpees', difficulty: 7, seconds: 2.5, pose: burpees },
+  { id: 'neck-roll', name: 'neck rolls', difficulty: 1, seconds: 3.0, reps: 20, pose: neckRoll },
+  { id: 'arm-circles', name: 'arm circles', difficulty: 2, seconds: 1.2, reps: 40, pose: armCircles },
+  { id: 'jumping-jacks', name: 'jumping jacks', difficulty: 3, seconds: 0.85, reps: 50, pose: jumpingJacks },
+  { id: 'sit-ups', name: 'sit-ups', difficulty: 4, seconds: 1.7, reps: 30, pose: sitUps },
+  { id: 'squats', name: 'squats', difficulty: 5, seconds: 1.8, reps: 25, pose: squats },
+  { id: 'push-ups', name: 'push-ups', difficulty: 6, seconds: 1.5, reps: 20, pose: pushUps },
+  { id: 'burpees', name: 'burpees', difficulty: 7, seconds: 2.5, reps: 12, pose: burpees },
 ].map((ex) => ({ ...ex, frames: Math.round(ex.seconds * FPS) }))
 
 export const byDifficulty = (d) => EXERCISES.find((x) => x.difficulty === Math.min(7, Math.max(1, d | 0))) ?? EXERCISES[0]
 
-/** The path of a pre-rendered frame, relative to the plugin root. */
-export const framePath = (ex, i) => `assets/frames/${ex.id}/f${i}.png`
+/** The path of a pre-rendered frame of a clip (an exercise, its intro, the outro), relative to the plugin root. */
+export const framePath = (clip, i) => `assets/frames/${clip.id}/f${i}.png`
+
+// --- arcade lettering --------------------------------------------------------
+// A 5x7 bitmap font drawn the arcade way: scaled, lit along the top, extruded
+// down-right in a darker tone and outlined, so a title reads as a slab.
+
+const FONT_W = 5, FONT_H = 7
+const FONT = {
+  A: ['.###.', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  B: ['####.', '#...#', '#...#', '####.', '#...#', '#...#', '####.'],
+  C: ['.###.', '#...#', '#....', '#....', '#....', '#...#', '.###.'],
+  D: ['####.', '#...#', '#...#', '#...#', '#...#', '#...#', '####.'],
+  E: ['#####', '#....', '#....', '####.', '#....', '#....', '#####'],
+  F: ['#####', '#....', '#....', '####.', '#....', '#....', '#....'],
+  G: ['.###.', '#...#', '#....', '#.###', '#...#', '#...#', '.####'],
+  H: ['#...#', '#...#', '#...#', '#####', '#...#', '#...#', '#...#'],
+  I: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '#####'],
+  J: ['..###', '...#.', '...#.', '...#.', '...#.', '#..#.', '.##..'],
+  K: ['#...#', '#..#.', '#.#..', '##...', '#.#..', '#..#.', '#...#'],
+  L: ['#....', '#....', '#....', '#....', '#....', '#....', '#####'],
+  M: ['#...#', '##.##', '#.#.#', '#.#.#', '#...#', '#...#', '#...#'],
+  N: ['#...#', '#...#', '##..#', '#.#.#', '#..##', '#...#', '#...#'],
+  O: ['.###.', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  P: ['####.', '#...#', '#...#', '####.', '#....', '#....', '#....'],
+  Q: ['.###.', '#...#', '#...#', '#...#', '#.#.#', '#..#.', '.##.#'],
+  R: ['####.', '#...#', '#...#', '####.', '#.#..', '#..#.', '#...#'],
+  S: ['.####', '#....', '#....', '.###.', '....#', '....#', '####.'],
+  T: ['#####', '..#..', '..#..', '..#..', '..#..', '..#..', '..#..'],
+  U: ['#...#', '#...#', '#...#', '#...#', '#...#', '#...#', '.###.'],
+  V: ['#...#', '#...#', '#...#', '#...#', '#...#', '.#.#.', '..#..'],
+  W: ['#...#', '#...#', '#...#', '#.#.#', '#.#.#', '##.##', '#...#'],
+  X: ['#...#', '#...#', '.#.#.', '..#..', '.#.#.', '#...#', '#...#'],
+  Y: ['#...#', '#...#', '.#.#.', '..#..', '..#..', '..#..', '..#..'],
+  Z: ['#####', '....#', '...#.', '..#..', '.#...', '#....', '#####'],
+  '0': ['.###.', '#...#', '#..##', '#.#.#', '##..#', '#...#', '.###.'],
+  '1': ['..#..', '.##..', '..#..', '..#..', '..#..', '..#..', '.###.'],
+  '2': ['.###.', '#...#', '....#', '...#.', '..#..', '.#...', '#####'],
+  '3': ['#####', '...#.', '..#..', '...#.', '....#', '#...#', '.###.'],
+  '4': ['...#.', '..##.', '.#.#.', '#..#.', '#####', '...#.', '...#.'],
+  '5': ['#####', '#....', '####.', '....#', '....#', '#...#', '.###.'],
+  '6': ['..##.', '.#...', '#....', '####.', '#...#', '#...#', '.###.'],
+  '7': ['#####', '....#', '...#.', '..#..', '.#...', '.#...', '.#...'],
+  '8': ['.###.', '#...#', '#...#', '.###.', '#...#', '#...#', '.###.'],
+  '9': ['.###.', '#...#', '#...#', '.####', '....#', '...#.', '.##..'],
+  'Ｘ': ['##..#', '##..#', '.###.', '..#..', '.###.', '#..##', '#..##'], // X's mark: a thick \\ over a thin /
+  '-': ['.....', '.....', '.....', '#####', '.....', '.....', '.....'],
+  '.': ['.....', '.....', '.....', '.....', '.....', '.##..', '.##..'],
+  ',': ['.....', '.....', '.....', '.....', '..##.', '..##.', '.##..'],
+  ':': ['.....', '.##..', '.##..', '.....', '.##..', '.##..', '.....'],
+  '…': ['.....', '.....', '.....', '.....', '.....', '#.#.#', '#.#.#'],
+  '·': ['.....', '.....', '.....', '.##..', '.##..', '.....', '.....'],
+  '%': ['##..#', '##.#.', '...#.', '..#..', '.#...', '.#.##', '#..##'],
+  '/': ['....#', '...#.', '...#.', '..#..', '.#...', '.#...', '#....'],
+  "'": ['..#..', '..#..', '.....', '.....', '.....', '.....', '.....'],
+  '(': ['...#.', '..#..', '.#...', '.#...', '.#...', '..#..', '...#.'],
+  ')': ['.#...', '..#..', '...#.', '...#.', '...#.', '..#..', '.#...'],
+  '!': ['..#..', '..#..', '..#..', '..#..', '..#..', '.....', '..#..'],
+  '?': ['.###.', '#...#', '....#', '...#.', '..#..', '.....', '..#..'],
+  ' ': ['.....', '.....', '.....', '.....', '.....', '.....', '.....'],
+}
+
+/**
+ * Lines of text laid out in the font, centred on each other: a grid of 0
+ * (clear), 1 (the face) and 2 (the lit band along the top of each glyph).
+ */
+function textMask(lines) {
+  const GAP = 1, LINE_GAP = 2
+  const width = (line) => line.length * (FONT_W + GAP) - GAP
+  const w = Math.max(...lines.map(width))
+  const h = lines.length * (FONT_H + LINE_GAP) - LINE_GAP
+  const g = new Uint8Array(w * h)
+  lines.forEach((line, li) => {
+    const ox = Math.floor((w - width(line)) / 2), oy = li * (FONT_H + LINE_GAP)
+    ;[...line.toUpperCase()].forEach((ch, ci) => {
+      const rows = FONT[ch] ?? FONT['?']
+      rows.forEach((row, y) => {
+        for (let x = 0; x < FONT_W; x++) if (row[x] === '#') g[(oy + y) * w + ox + ci * (FONT_W + GAP) + x] = y < 3 ? 2 : 1
+      })
+    })
+  })
+  return { w, h, g }
+}
+
+/**
+ * Draws a text mask scaled by `s` about (cx, cy) as a slab: the face in
+ * `face` with `lit` along the top, extruded `depth` px (at scale 2) down-right
+ * in `side`, and a 1 px outline around the lot. Nearest-neighbour scaling, so
+ * it is crisp at whole and half scales and reads as motion at the rest.
+ */
+function drawText(cv, mask, cx, cy, s, { depth = 2, face = C.gold, lit = lighten(C.gold), side = C.goldShade, alpha = 255 } = {}) {
+  const W = Math.round(mask.w * s), H = Math.round(mask.h * s)
+  if (W < 1 || H < 1) return
+  const x0 = Math.round(cx - W / 2), y0 = Math.round(cy - H / 2)
+  const M = new Uint8Array(W * H)
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) M[y * W + x] = mask.g[Math.min(mask.h - 1, Math.floor(y / s)) * mask.w + Math.min(mask.w - 1, Math.floor(x / s))]
+  const d = Math.max(1, Math.round((depth * s) / 2))
+  const at = (x, y) => (x < 0 || y < 0 || x >= W || y >= H ? 0 : M[y * W + x])
+  const solid = (x, y) => {
+    for (let k = 0; k <= d; k++) if (at(x - k, y - k)) return true
+    return false
+  }
+  for (let y = -1; y <= H + d; y++)
+    for (let x = -1; x <= W + d; x++) {
+      if (solid(x, y)) continue
+      if (solid(x - 1, y) || solid(x + 1, y) || solid(x, y - 1) || solid(x, y + 1)) cv.set(x0 + x, y0 + y, OUT, alpha)
+    }
+  for (let k = d; k >= 1; k--) for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (M[y * W + x]) cv.set(x0 + x + k, y0 + y + k, side, alpha)
+  for (let y = 0; y < H; y++)
+    for (let x = 0; x < W; x++) {
+      const m = M[y * W + x]
+      if (m) cv.set(x0 + x, y0 + y, m === 2 ? lit : face, alpha)
+    }
+}
+
+/** Arcade lettering for anyone: `lines` of text, scaled `s`, centred on (cx, cy). */
+export const drawTitle = (cv, lines, cx, cy, s = 2, opts) => drawText(cv, textMask(lines), cx, cy, s, opts)
+
+// --- party effects -----------------------------------------------------------
+
+const CONFETTI = [C.gold, C.light, C.drop, C.tunicLight, C.spark, hex('#e86a8a'), hex('#7bd389')]
+// a tiny deterministic generator, so every frame of a burst agrees with the last
+const lcg = (seed) => {
+  let s = seed
+  return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff
+}
+function piece(cv, x, y, color, wide, tumble, alpha) {
+  const [pw, ph] = tumble ? [wide ? 3 : 2, 2] : [2, wide ? 3 : 2]
+  const px = Math.round(x), py = Math.round(y)
+  for (let dy = 0; dy < ph; dy++) for (let dx = 0; dx < pw; dx++) if (px + dx > 0 && py + dy > 0 && px + dx < SIZE - 1 && py + dy < SIZE - 1) cv.set(px + dx, py + dy, color, alpha)
+}
+
+/** `n` pieces burst from (cx, cy); `k` frames on, each has flown its own arc, slowing and falling, and fades after `fade` frames. */
+function confettiBurst(cv, cx, cy, k, { n = 28, seed = 7, fade = 7 } = {}) {
+  const rnd = lcg(seed)
+  for (let i = 0; i < n; i++) {
+    const ang = rnd() * Math.PI * 2, speed = 5 + rnd() * 8
+    let x = cx, y = cy, vx = Math.cos(ang) * speed, vy = Math.sin(ang) * speed - 3
+    const color = CONFETTI[Math.floor(rnd() * CONFETTI.length)], wide = rnd() < 0.5, spin = Math.floor(rnd() * 4)
+    for (let f = 0; f < k; f++) {
+      x += vx
+      y += vy
+      vx *= 0.8
+      vy = vy * 0.8 + 1
+    }
+    const alpha = k < fade ? 255 : Math.max(0, 255 - (k - fade) * 70)
+    if (alpha > 0) piece(cv, x, y, color, wide, (k + spin) % 4 < 2, alpha)
+  }
+}
+
+/** Confetti raining from the top: `n` pieces let go over the first dozen frames, each drifting down on its own sway. */
+function confettiRain(cv, k, { n = 30, seed = 11 } = {}) {
+  const rnd = lcg(seed)
+  for (let i = 0; i < n; i++) {
+    const x0 = 4 + rnd() * (SIZE - 8), start = Math.floor(rnd() * 12), speed = 1.6 + rnd() * 2, sway = 2 + rnd() * 3, phase = rnd() * 6.28
+    const color = CONFETTI[Math.floor(rnd() * CONFETTI.length)], wide = rnd() < 0.5, spin = Math.floor(rnd() * 4)
+    const age = k - start
+    if (age < 0) continue
+    const y = -3 + age * speed
+    if (y > SIZE - 2) continue
+    piece(cv, x0 + Math.sin(phase + age * 0.45) * sway, y, color, wide, (age + spin) % 4 < 2, 255)
+  }
+}
+
+/** A one-pixel ring: the pop's shockwave. */
+function ring(cv, cx, cy, r, color, alpha = 255) {
+  for (let y = Math.floor(cy - r - 1); y <= cy + r + 1; y++)
+    for (let x = Math.floor(cx - r - 1); x <= cx + r + 1; x++) if (Math.abs(Math.hypot(x + 0.5 - cx, y + 0.5 - cy) - r) < 0.75) cv.set(x, y, color, alpha)
+}
+
+/** Every drawn pixel in one colour: the flash of a reveal. */
+function silhouette(cv, color) {
+  for (let i = 0; i < cv.rgba.length; i += 4)
+    if (cv.rgba[i + 3]) {
+      cv.rgba[i] = (color >> 16) & 255
+      cv.rgba[i + 1] = (color >> 8) & 255
+      cv.rgba[i + 2] = color & 255
+    }
+}
+
+// --- ready: a beat before the title, while the verdict is on its way ---------
+
+export const READY_FRAMES = 12
+const READY_TITLE = textMask(['READY?'])
+function drawReady(cv, i) {
+  // a gentle bob, so the card is alive while it waits
+  drawText(cv, READY_TITLE, CX, 60 + Math.round(2 * Math.sin((2 * Math.PI * i) / READY_FRAMES)), 2)
+  return { reached: true }
+}
+
+// --- intro: the title balloons in and pops to reveal Pixi --------------------
+
+const backOut = (u) => 1 + 2.70158 * (u - 1) ** 3 + 1.70158 * (u - 1) ** 2 // eases past 1 and settles
+const ZOOM_FRAMES = 10, BULGE_FRAMES = 2, POP_FRAMES = 6
+export const INTRO_FRAMES = ZOOM_FRAMES + BULGE_FRAMES + POP_FRAMES
+const TITLE_Y = 60
+
+function drawIntro(cv, ex, i) {
+  const mask = textMask(ex.name.split(' '))
+  if (i < ZOOM_FRAMES) {
+    // the title rushes in from small, overshoots and settles at 2x
+    const s = 0.3 + 1.7 * backOut(i / (ZOOM_FRAMES - 1))
+    drawText(cv, mask, CX, TITLE_Y, Math.max(0.3, Math.round(s * 4) / 4))
+    return { reached: true }
+  }
+  if (i < ZOOM_FRAMES + BULGE_FRAMES) {
+    // the balloon swells before it goes
+    drawText(cv, mask, CX, TITLE_Y, i === ZOOM_FRAMES ? 2.25 : 2.5)
+    return { reached: true }
+  }
+  // the pop: Pixi stands revealed in the exercise's opening pose, startled for
+  // a beat, under a shockwave and a burst of confetti
+  const k = i - ZOOM_FRAMES - BULGE_FRAMES
+  const pose = ex.pose(0)
+  const head = { ...(pose.head ?? {}), cap: 0 }
+  if (k <= 2) Object.assign(head, { eyes: 'wide', mouth: 'o' })
+  const joints = drawPose(cv, { ...pose, head })
+  if (k === 0) silhouette(cv, C.light)
+  if (k < 3) ring(cv, CX, TITLE_Y, 16 + k * 16, C.light, 255 - k * 80)
+  confettiBurst(cv, CX, TITLE_Y, k + 1)
+  return joints
+}
+
+// --- outro: a leap, a landing, "GOOD JOB!", confetti -------------------------
+
+export const OUTRO_FRAMES = 36
+const GOOD_JOB = textMask(['GOOD JOB!'])
+const TADA_HIP_Y = FLOOR - 3 - 14 // a deep, wide squat: the pose Pixi lands in and holds
+const TADA_STANCE = 15
+
+function drawOutro(cv, i) {
+  let pose
+  const stand = (hipY, stance, torsoLen = RIG.torso) => ({
+    view: 'front',
+    hip: [CX, hipY],
+    torsoLen,
+    legs: { L: { target: [CX - stance, FLOOR - 3], bend: 1 }, R: { target: [CX + stance, FLOOR - 3], bend: -1 } },
+  })
+  const armsUp = { L: { a: 160, b: -8 }, R: { a: 160, b: -8 } }
+  const fx = []
+  if (i < 4) {
+    // anticipation: a crouch, arms swung back
+    const u = smooth(i / 3)
+    pose = { ...stand(STAND_HIP_Y + 7 * u, 9, RIG.torso - 2 * u), head: { dy: Math.round(2 * u), eyes: 'closed', mouth: 'o' }, arms: { L: { a: 35, b: 10 }, R: { a: 35, b: 10 } } }
+  } else if (i < 10) {
+    // the leap: straight up, fists in the air, sparks at the apex
+    const h = (i - 4) / 5
+    const air = Math.sin(Math.PI * h)
+    const hipY = STAND_HIP_Y - 22 * air // any higher and the hair leaves the canvas
+    const apex = i === 6 || i === 7
+    pose = {
+      view: 'front',
+      hip: [CX, hipY],
+      head: { dy: air > 0.8 ? -1 : 0, eyes: apex ? 'wide' : 'open', mouth: h > 0.3 ? 'grin' : 'open' },
+      arms: armsUp,
+      legs: { L: { target: [CX - 7, hipY + REACH_LEG - 3], bend: 1 }, R: { target: [CX + 7, hipY + REACH_LEG - 3], bend: -1 } },
+    }
+    if (apex) fx.push({ type: 'spark', x: CX - 42, y: hipY - 50 }, { type: 'sparkSmall', x: CX + 36, y: hipY - 56 }, { type: 'sparkSmall', x: CX - 30, y: hipY - 10 })
+    if (i === 9) fx.push({ type: 'line', x: CX - 30, y: FLOOR - 1, x2: CX - 36, y2: FLOOR - 1 }, { type: 'line', x: CX + 30, y: FLOOR - 1, x2: CX + 36, y2: FLOOR - 1 })
+  } else {
+    // the landing, squashed, then the hold: arms in a V, a bounce on the beat, a blink
+    const landing = i < 12
+    const k = i - 12
+    const bounce = landing ? 0 : [0, -1, -1, 0, 0, 0][k % 6]
+    const blink = k >= 16 && k <= 17
+    pose = {
+      ...stand(TADA_HIP_Y + (landing ? 3 : 0) + bounce, TADA_STANCE, RIG.torso - (landing ? 3 : 0)),
+      head: { dy: landing ? 2 : 0, eyes: landing || blink ? 'closed' : 'happy', mouth: landing ? 'open' : 'grin' },
+      arms: armsUp,
+    }
+    if (!landing && k % 8 < 3) fx.push({ type: k % 2 ? 'spark' : 'sparkSmall', x: [14, 104, 22, 100][Math.floor(k / 8) % 4], y: [70, 56, 46, 78][Math.floor(k / 8) % 4] })
+  }
+  const joints = drawPose(cv, { ...pose, head: { ...(pose.head ?? {}), cap: 0 }, fx })
+  if (i >= 12) {
+    const k = i - 12
+    confettiRain(cv, k)
+    // "GOOD JOB!" slams in over the head, its lit band glinting now and then
+    const s = k < 6 ? 0.3 + 1.7 * backOut(k / 5) : 2
+    drawText(cv, GOOD_JOB, CX, 18, Math.max(0.3, Math.round(s * 4) / 4), { lit: k >= 6 && k % 12 >= 9 ? C.light : lighten(C.gold) })
+  }
+  return joints
+}
+
+// --- the clips ---------------------------------------------------------------
+// An exercise cycles; its intro and the outro play once. `renderFrame` draws
+// any of them; `framePath` names their pre-rendered frames.
+
+const intros = new Map()
+/** The intro clip for an exercise: its name balloons in and pops to reveal Pixi in the opening pose. */
+export const introOf = (ex) => {
+  if (!intros.has(ex)) intros.set(ex, { id: `${ex.id}-intro`, frames: INTRO_FRAMES, draw: (cv, i) => drawIntro(cv, ex, i) })
+  return intros.get(ex)
+}
+/** The ready clip: "READY?" bobbing while the model decides which exercise it is; loops. */
+export const READY = { id: 'ready', frames: READY_FRAMES, draw: drawReady, loops: true }
+/** The outro clip: a set well done. */
+export const OUTRO = { id: 'outro', frames: OUTRO_FRAMES, draw: drawOutro }
+/** Everything the frame builder renders. */
+export const CLIPS = [...EXERCISES, READY, ...EXERCISES.map(introOf), OUTRO]
+
+// --- for drawing scenes around Pixi (the showcase) ---------------------------
+/** The rasterizer's primitives and painter, the palette and the effects, so a scene can be drawn in Pixi's own style. */
+export const shapes = { capsule, ellipse, polygon, flat, paintPart }
+export const PALETTE = C
+export const OUTLINE = OUT
+export const ease = { clamp01, mix, smooth, easeOut, easeIn, seg, keyed }
+export { drawFx, confettiBurst, lighten, dim }
 
 /**
  * The canvas as terminal cells, `columns` wide and `rows` tall, two pixels a
@@ -857,10 +1178,12 @@ export function halfBlocks(cv, columns, rows) {
 }
 
 /**
- * Renders frame `i` of an exercise into a fresh canvas. The hair cap trails
- * the head's vertical motion by a pixel, read off the previous frame.
+ * Renders frame `i` of a clip into a fresh canvas: an intro or the outro draws
+ * itself; an exercise is posed, with the hair cap trailing the head's
+ * vertical motion by a pixel, read off the previous frame.
  */
 export function renderFrame(ex, i, cv = new Canvas()) {
+  if (ex.draw) return { canvas: cv, joints: ex.draw(cv, i % ex.frames), pose: null }
   const t = (i % ex.frames) / ex.frames
   const pose = ex.pose(t)
   const prev = ex.pose(t - 1 / ex.frames)

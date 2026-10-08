@@ -1,7 +1,7 @@
-// Renders every exercise clip to assets/frames/<id>/f<n>.png (true-pixel
-// frames for the terminal's image renderer) and checks each frame: every IK
-// target reached (feet and hands land where the clip put them) and nothing
-// clipped at the canvas edge.
+// Renders every clip (the exercises, their intros, the outro) to
+// assets/frames/<id>/f<n>.png (true-pixel frames for the terminal's image
+// renderer) and checks each frame: every IK target reached (feet and hands
+// land where the clip put them) and nothing clipped at the canvas edge.
 //
 // Usage: node tools/render.mjs [--scale 8] [--sheets <dir>] [--no-frames] [id ...]
 //   --scale <k>     nearest-neighbour upscale of the 128 px canvas (default 8: 1024 px, crisp on HiDPI)
@@ -11,7 +11,7 @@ import { writeFileSync, mkdirSync, rmSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { encodePNG, upscale } from './png.mjs'
-import { EXERCISES, SIZE, Canvas, renderFrame, framePath } from '../hooks/pixi.js'
+import { CLIPS, SIZE, Canvas, renderFrame, framePath } from '../hooks/pixi.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const args = process.argv.slice(2)
@@ -23,7 +23,7 @@ const SCALE = Number(opt('--scale', 8))
 const SHEETS = opt('--sheets', null)
 const FRAMES = !args.includes('--no-frames')
 const ids = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--scale' && args[i - 1] !== '--sheets')
-const picked = ids.length ? EXERCISES.filter((e) => ids.includes(e.id)) : EXERCISES
+const picked = ids.length ? CLIPS.filter((e) => ids.includes(e.id)) : CLIPS
 
 let problems = 0
 for (const ex of picked) {
@@ -76,7 +76,7 @@ for (const ex of picked) {
     mkdirSync(SHEETS, { recursive: true })
     writeFileSync(join(SHEETS, `${ex.id}.png`), encodePNG(sheet.rgba, sheet.w, sheet.h))
   }
-  console.log(`${ex.id}: ${ex.frames} frames (${ex.seconds}s)`)
+  console.log(`${ex.id}: ${ex.frames} frames (${ex.seconds ?? Math.round((ex.frames / 12) * 10) / 10}s)`)
 }
 if (problems) {
   console.log(`${problems} problem(s)`)

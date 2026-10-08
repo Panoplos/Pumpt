@@ -9,7 +9,7 @@
 # are staged with a patched config before converting.
 set -e
 BITS=${1:-8}
-VENV=${VENV:-$HOME/.thinkercise-mlx}
+VENV=${VENV:-$HOME/.pumpt-mlx}
 OUT=${OUT:-$HOME/models/torchcast-decision-12b-${BITS}bit}
 SRC=$HOME/models/torchcast-decision-12b-src
 REPO=torchcast-ai/torchcast-decision-12b

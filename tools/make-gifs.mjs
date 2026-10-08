@@ -1,19 +1,26 @@
-// Renders every exercise clip to an animated GIF under docs/gifs/<id>.gif for
-// the README, on a solid dark card (GIF has 1-bit transparency, so a soft
-// pixel-art edge needs a background to sit on).
+// Renders the clips to animated GIFs under docs/gifs for the README, on a
+// solid dark card (GIF has 1-bit transparency, so a soft pixel-art edge needs
+// a background to sit on): one GIF per clip (the exercises, their intros, the
+// outro), and `--set <exercise>` for a whole set in one GIF: the intro, a few
+// reps, the bow.
 //
-// Usage: node tools/make-gifs.mjs [--scale 3] [id ...]
+// Usage: node tools/make-gifs.mjs [--scale 3] [--set <id> [--reps 2]] [id ...]
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { EXERCISES, SIZE, FPS, renderFrame } from '../hooks/pixi.js'
+import { CLIPS, EXERCISES, OUTRO, READY, SIZE, FPS, introOf, renderFrame } from '../hooks/pixi.js'
 
 const ROOT = dirname(dirname(fileURLToPath(import.meta.url)))
 const args = process.argv.slice(2)
-const si = args.indexOf('--scale')
-const SCALE = si < 0 ? 3 : Number(args[si + 1])
-const ids = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--scale')
-const picked = ids.length ? EXERCISES.filter((e) => ids.includes(e.id)) : EXERCISES
+const opt = (name, fallback) => {
+  const i = args.indexOf(name)
+  return i < 0 ? fallback : args[i + 1]
+}
+const SCALE = Number(opt('--scale', 3))
+const SET = opt('--set', null)
+const REPS = Number(opt('--reps', 2))
+const valued = ['--scale', '--set', '--reps']
+const ids = args.filter((a, i) => !a.startsWith('--') && !valued.includes(args[i - 1]))
 
 const BG = [0x1b, 0x1b, 0x2a]
 const W = SIZE * SCALE
@@ -85,7 +92,8 @@ function lzw(pixels, minCode) {
   return bytes
 }
 
-function encodeGIF({ palette, frames }, delayCs) {
+/** `delays`: centiseconds per frame (one number for all, or one per frame). */
+function encodeGIF({ palette, frames }, delays) {
   let depth = 1
   while (1 << depth < palette.length) depth++
   const out = [Buffer.from('GIF89a'), Buffer.from([W & 255, W >> 8, W & 255, W >> 8, 0x80 | (depth - 1), 0, 0])]
@@ -93,7 +101,8 @@ function encodeGIF({ palette, frames }, delayCs) {
   palette.forEach((px, i) => table.set([px >> 16, (px >> 8) & 255, px & 255], i * 3))
   out.push(table, Buffer.from([0x21, 0xff, 0x0b]), Buffer.from('NETSCAPE2.0'), Buffer.from([3, 1, 0, 0, 0]))
   const minCode = Math.max(2, depth)
-  for (const f of frames) {
+  frames.forEach((f, i) => {
+    const delayCs = Array.isArray(delays) ? delays[i] : delays
     out.push(Buffer.from([0x21, 0xf9, 4, 0x04, delayCs & 255, delayCs >> 8, 0, 0])) // dispose: leave
     out.push(Buffer.from([0x2c, 0, 0, 0, 0, W & 255, W >> 8, W & 255, W >> 8, 0, minCode]))
     const data = lzw(f, minCode)
@@ -102,15 +111,31 @@ function encodeGIF({ palette, frames }, delayCs) {
       out.push(Buffer.from([part.length, ...part]))
     }
     out.push(Buffer.from([0]))
-  }
+  })
   out.push(Buffer.from([0x3b]))
   return Buffer.concat(out)
 }
 
+const framesOf = (clip) => Array.from({ length: clip.frames }, (_, i) => compose(renderFrame(clip, i).canvas))
+const DELAY = Math.round(100 / FPS)
 mkdirSync(join(ROOT, 'docs', 'gifs'), { recursive: true })
-for (const ex of picked) {
-  const frames = Array.from({ length: ex.frames }, (_, i) => compose(renderFrame(ex, i).canvas))
-  const gif = encodeGIF(quantize(frames), Math.round(100 / FPS))
-  writeFileSync(join(ROOT, 'docs', 'gifs', `${ex.id}.gif`), gif)
-  console.log(`${ex.id}: ${ex.frames} frames, ${(gif.length / 1024).toFixed(0)} KB`)
+
+if (SET) {
+  const ex = EXERCISES.find((e) => e.id === SET)
+  if (!ex) throw new Error(`no exercise ${SET}`)
+  const frames = [...framesOf(READY).slice(0, 8), ...framesOf(introOf(ex))] // the ready beat as the mod shows it on a quick verdict
+  for (let r = 0; r < REPS; r++) frames.push(...framesOf(ex))
+  frames.push(...framesOf(OUTRO))
+  const delays = frames.map((_, i) => (i === frames.length - 1 ? 150 : DELAY)) // a beat on the bow before it loops
+  const gif = encodeGIF(quantize(frames), delays)
+  writeFileSync(join(ROOT, 'docs', 'gifs', `${ex.id}-set.gif`), gif)
+  console.log(`${ex.id}-set: ${frames.length} frames, ${(gif.length / 1024).toFixed(0)} KB`)
+} else {
+  const picked = ids.length ? CLIPS.filter((c) => ids.includes(c.id)) : CLIPS
+  for (const clip of picked) {
+    const frames = framesOf(clip)
+    const gif = encodeGIF(quantize(frames), clip.pose ? DELAY : frames.map((_, i) => (i === frames.length - 1 ? 100 : DELAY)))
+    writeFileSync(join(ROOT, 'docs', 'gifs', `${clip.id}.gif`), gif)
+    console.log(`${clip.id}: ${clip.frames} frames, ${(gif.length / 1024).toFixed(0)} KB`)
+  }
 }

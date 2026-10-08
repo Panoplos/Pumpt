@@ -109,9 +109,18 @@ export function verdictOf(raw, cfg = config) {
     let c = 0
     while (level < probabilities.length - 1 && (c += probabilities[level]) < 0.5) level++
   } else probabilities.forEach((p, i) => p > probabilities[level] && (level = i))
-  const minutes = Math.round(probabilities.reduce((sum, p, i) => sum + p * cfg.minutes[i], 0))
+  // the geometric expectation: the table spans two orders of magnitude, and an
+  // arithmetic mean would let a few percent on the top level dominate
+  const minutes = Math.round(100 * Math.exp(probabilities.reduce((sum, p, i) => sum + p * Math.log(cfg.minutes[i]), 0))) / 100
   const expected = probabilities.reduce((sum, p, i) => sum + p * (i + 1), 0)
   return { difficulty: level + 1, confidence: probabilities[level], minutes, expected, probabilities }
+}
+
+/** Minutes for people: `~40 s`, `~2.5 min`, `~20 min`. */
+export function formatMinutes(minutes) {
+  if (minutes < 1) return `~${Math.max(5, Math.round((minutes * 60) / 5) * 5)} s`
+  if (minutes < 10) return `~${Math.round(minutes * 10) / 10} min`
+  return `~${Math.round(minutes)} min`
 }
 
 /** The verdict in a /v1/systemone reply. */

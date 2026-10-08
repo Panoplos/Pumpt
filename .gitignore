@@ -20,7 +20,7 @@ labels.json
 *.safetensors
 *.gguf
 models/
-.thinkercise-mlx/
+.pumpt-mlx/
 
 # Local state and secrets
 .env

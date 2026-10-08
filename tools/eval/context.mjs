@@ -4,7 +4,7 @@
 //
 // Usage: node tools/eval/context.mjs prompts.json labels.json
 //   prompts.json from tools/eval/extract.py; labels.json maps "<session>#<index>" to 1-7.
-//   THINKERCISE_LLM_URL / THINKERCISE_LLM_MODEL as for tools/ask.mjs.
+//   PUMPT_LLM_URL / PUMPT_LLM_MODEL as for tools/ask.mjs.
 import { readFileSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,7 +12,7 @@ import { estimateWith, resolveModel } from '../../hooks/estimate.js'
 
 const ROOT = dirname(dirname(dirname(fileURLToPath(import.meta.url))))
 const manifest = JSON.parse(readFileSync(join(ROOT, '.claude-plugin', 'plugin.json'), 'utf8'))
-const url = process.env.THINKERCISE_LLM_URL || manifest.userConfig.llm_url.default
+const url = process.env.PUMPT_LLM_URL || manifest.userConfig.llm_url.default
 const rows = JSON.parse(readFileSync(process.argv[2], 'utf8'))
 const labels = JSON.parse(readFileSync(process.argv[3], 'utf8'))
 
@@ -21,7 +21,7 @@ const post = async (u, body) => {
   return { ok: res.ok, status: res.status, text: await res.text() }
 }
 const get = async (u) => ({ ...(await fetch(u).then(async (r) => ({ ok: r.ok, status: r.status, text: await r.text() }))) })
-const model = await resolveModel(get, url, process.env.THINKERCISE_LLM_MODEL || manifest.userConfig.llm_model.default)
+const model = await resolveModel(get, url, process.env.PUMPT_LLM_MODEL || manifest.userConfig.llm_model.default)
 
 const said = (ms) => ms.filter((m) => m.text && m.text.trim())
 const line = (m, n) => `${m.role}: ${m.text.trim().replace(/\s+/g, ' ').slice(0, n)}`
