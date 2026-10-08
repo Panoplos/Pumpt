@@ -19,6 +19,7 @@ then shows a pixel-art elf doing an exercise to match, until the turn is done.
 <a href="docs/pumpt-720p.mp4"><img src="docs/pumpt-preview.gif" alt="Pumpt! in 12 seconds: the title crashes in, you prompt Claude, Pixi does squats above your prompt. Click for the full video." width="640" /></a>
 
 *Easy prompt → neck rolls. Big prompt → burpees. Finish the set → take a bow.*
+
 *[Watch the full 64-second video](docs/pumpt-720p.mp4) · the story of why Pixi built it.*
 
 </div>
